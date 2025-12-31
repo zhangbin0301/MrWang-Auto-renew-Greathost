@@ -46,34 +46,38 @@ async function sendTelegramMessage(message) {
     // === 2. 状态检查与自动开机 (仅作为辅助动作) ===
     console.log("📊 正在检查服务器实时状态...");
     
-    // 获取当前状态文字（对应 F12 中的 .status-text）
+    // 1. 获取当前状态文字
     const statusText = await page.locator('.status-text, .server-status').first().textContent().catch(() => 'unknown');
     const statusLower = statusText.trim().toLowerCase();
     
-    // serverStarted 定义在 try 块顶部：let serverStarted = false;
+    // 2. 执行判定与点击动作
     if (statusLower.includes('offline') || statusLower.includes('stopped') || statusLower.includes('离线')) {
-        console.log(`⚡ 检测到离线 [${statusText}]，尝试点击三角形启动按钮...`);
-        
-        // 使用你提供的 SVG 结构精准定位按钮
-        const startBtn = page.locator('button.btn-start[title="Start Server"]').first();
+        console.log(`⚡ 检测到离线 [${statusText}]，尝试触发启动...`);
         
         try {
-            // 检查按钮是否被禁用，如果没禁用就点
+            // 使用 SVG 结构精准定位三角形启动按钮
+            const startBtn = page.locator('button.btn-start[title="Start Server"]').first();
             const isDisabled = await startBtn.getAttribute('disabled');
+
             if (await startBtn.isVisible() && isDisabled === null) {
                 await startBtn.click();
+                // 注意：请确保你在 try 块的最顶部（或登录前）已经写了 let serverStarted = false;
                 serverStarted = true; 
                 console.log("✅ 启动指令已发出");
-                // 仅在点击成功后象征性等待 1 秒，不要浪费 Actions 时间
-                await page.waitForTimeout(1000);
+                await page.waitForTimeout(1000); // 仅做短暂缓冲
+            } else {
+                console.log("⚠️ 启动按钮不可见或已被禁用，跳过启动动作。");
             }
         } catch (e) {
-            console.log("⚠️ 启动按钮点击失败，可能已被禁用或不存在，忽略并继续...");
+            console.log("ℹ️ 尝试启动时遇到错误，忽略并继续后续流程...");
         }
+    } else if (statusLower.includes('pending')) {
+        console.log("⏳ 服务器正在启动中 (Pending)，无需操作。");
     } else {
-        console.log(`ℹ️ 当前状态 [${statusText}]，无需点击启动。`);
+        console.log(`ℹ️ 服务器当前状态为 [${statusText}]，运行正常。`);
     }
 
+        
     // === 不管启动结果，强制进入账单页 ===
     // === 3. 点击 Billing 图标进入账单页 ===
     console.log("🔍 点击 Billing 图标...");
