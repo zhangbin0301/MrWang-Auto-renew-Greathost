@@ -146,42 +146,60 @@ async function sendTelegramMessage(message) {
     return; // 结束脚本，不执行后面的点击操作
 }
      
-    // === 10. 执行续期 ===
-    console.log("⚡ 正在调用续期接口...执行续期...");
+   // === 10. 执行续期 ===
+    console.log("⚡ 正在执行续期点击...");
     await renewBtn.click();
-    
+
     // === 11. 等待接口返回并处理（源代码中使用了 fetch，这里等待页面响应） ===
+    // 等待 8 秒让后端处理，并留心观察页面是否出现了错误提示
     await page.waitForTimeout(8000); 
+    
+    // 检查页面上是否弹出了这个错误文本（通常是红色提示框）
+    const errorMsg = await page.locator('.toast-error, .alert-danger').textContent().catch(() => '');
+    const isMaxedOut = errorMsg.includes('5 días') || beforeHours >= 120;
+
     await page.reload({ waitUntil: "networkidle" });
+
     
     // === 12. 再次等待数据刷新 ===
     await page.waitForFunction(sel => {
       const el = document.querySelector(sel);
       return el && /\d+/.test(el.textContent);
     }, timeSelector);
-
+    
+    // === 12.1 获取续期后时间 ===
     const afterHoursText = await page.textContent(timeSelector);
     const afterHours = parseInt(afterHoursText.replace(/[^0-9]/g, '')) || 0;
 
-    // === 12. 最终通知 ===
-if (afterHours > beforeHours) {
-    const message = `🎉 <b>GreatHost 续期成功</b>\n\n` +
-                    `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
-                    `⏰ <b>时间变化:</b> ${beforeHours} ➔ ${afterHours}h (+12h)\n` +
-                    `🚀 <b>服务器状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行中'}\n` +
-                    `📅 <b>执行时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
-    
-    await sendTelegramMessage(message);
-    console.log("🎉 续期成功 🎉");
-} else {
-      const message = `⚠️ <b>GreatHost 续期未生效</b>\n\n` +
-                      `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
-                      `⏰ <b>当前时间:</b> ${beforeHours}h\n` +
-                      `🚀 <b>服务器状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行中'}\n` +
-                      `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +
-                      `💡 <b>提示:</b> 时间未增加，请检查手动确认。`;
-      await sendTelegramMessage(message);
-      console.log("🚨 续期失败 🚨 ");
+    // === 12. 最终通知 (根据接口反馈优化) ===
+    if (afterHours > beforeHours) {
+        // 场景 A：成功增加时间
+        const message = `🎉 <b>GreatHost 续期成功</b>\n\n` +
+                        `🆔 <b>ID:</b> <code>${serverId}</code>\n` +
+                        `⏰ <b>时间:</b> ${beforeHours} ➔ ${afterHours}h\n` +
+                        `🚀 <b>状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}`;
+                        `📅 <b>执行时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+        await sendTelegramMessage(message);
+    } else if (isMaxedOut) {
+        // 场景 B：因为满 120 小时而被拒绝（这就是你看到的 No puedes renovar...）
+        const message = `✅ <b>GreatHost 已达上限</b>\n\n` +
+                        `🆔 <b>ID:</b> <code>${serverId}</code>\n` +
+                        `⏰ <b>当前:</b> ${beforeHours}h (已满额)\n` +
+                        `🚀 <b>状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}\n` +
+                        `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +      
+                        `💡 <b>提示:</b> 累计不能超过 5 天，无需续期。`;
+        await sendTelegramMessage(message);
+        console.log("⚠️  累计不能超过 5 天，无需续期 ⚠️  ");
+    } else {
+        // 场景 C：真正的失败（比如网络问题或按钮点不动）
+        const message = `⚠️ <b>GreatHost 续期未生效</b>\n\n` +
+                        `🆔 <b>ID:</b> <code>${serverId}</code>\n` +
+                        `⏰ <b>当前:</b> ${beforeHours}h\n` +
+                        `🚀 <b>服务器状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行中'}\n` +
+                        `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +
+                        `💡 <b>提示:</b> 时间未增加，请手动检查确认。`;            
+        await sendTelegramMessage(message);    
+        console.log("🚨 续期失败 🚨 ");
     }  
   } catch (err) {
     console.error("❌ 运行时错误:", err.message);
