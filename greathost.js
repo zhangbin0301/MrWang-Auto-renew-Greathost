@@ -180,6 +180,7 @@ async function sendTelegramMessage(message) {
                         `🚀 <b>状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}\n` + 
                         `📅 <b>执行时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`; 
         await sendTelegramMessage(message);
+        console.log("✅ 续期成功 ✅   ");
     } else if (isMaxedOut) {
         // 场景 B：因为满 120 小时而被拒绝（这就是你看到的 No puedes renovar...）
         const message = `✅ <b>GreatHost 已达上限</b>\n\n` +
