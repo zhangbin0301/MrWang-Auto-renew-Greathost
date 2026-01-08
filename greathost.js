@@ -30,7 +30,8 @@ async function sendTelegramMessage(message) {
 // 增加 User-Agent 伪装，让它看起来像真实的 Windows Chrome
   const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 }
+      viewport: { width: 1280, height: 720 },
+      locale: 'es-ES' 
   });
   const page = await context.newPage();  
 
@@ -69,7 +70,7 @@ async function sendTelegramMessage(message) {
     
     let serverStarted = false;
             // 2.1 获取当前服务器状态文字
-    const statusText = await page.locator('.status-text, .server-status').first().textContent().catch(() => 'unknown');
+    const statusText = (await page.locator('.status-text, .server-status').first().textContent().catch(() => 'unknown')) || 'unknown';
     const statusLower = statusText.trim().toLowerCase();
 
             // 2.2 执行判定与点击动作
