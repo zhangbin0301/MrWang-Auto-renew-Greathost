@@ -166,7 +166,7 @@ async function sendTelegramMessage(message) {
                `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
                `⏰ <b>${title.includes('冷却') ? '累计时长' : '最新时长'}:</b> ${hours}h\n` +
                `🚀 <b>运行状态:</b> ${serverStarted ? '✅ 已触发启动' : '运行正常'}\n` +
-               `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n\n` +
+               `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n` +
                `💡 <b>判定说明:</b> ${detail}`;
     };
 
