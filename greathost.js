@@ -35,8 +35,8 @@ async function sendTelegramMessage(message) {
       launchOptions.proxy = { server: PROXY_URL };
   }
   const browser = await chromium.launch(launchOptions);
-  // --- 修改结束 ---
-// 增加 User-Agent 伪装，让它看起来像真实的 Windows Chrome
+  
+  // 增加 User-Agent 伪装，让它看起来像真实的 Windows Chrome
   const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 720 },
@@ -81,8 +81,7 @@ async function sendTelegramMessage(message) {
       }
     } else {
       console.log("🌍 [Check] 未设置代理，跳过检测。");
-    }
-    // --- 新增结束 ---
+    }    
 
     // === 1. 登录 ===
     console.log("🔑 打开登录页：", LOGIN_URL);
@@ -95,7 +94,6 @@ async function sendTelegramMessage(message) {
     ]);
     console.log("✅ 登录成功！");
     await page.waitForTimeout(2000);
-
     
     // === 2. 状态检查与自动开机 (仅作为辅助动作) ===
     console.log("📊 正在检查服务器实时状态...");
@@ -104,22 +102,18 @@ async function sendTelegramMessage(message) {
             // 2.1 获取当前服务器状态文字
     const statusText = (await page.locator('.status-text, .server-status').first().textContent().catch(() => 'unknown')) || 'unknown';
     const statusLower = statusText.trim().toLowerCase();
-
             // 2.2 执行判定与点击动作
     if (statusLower.includes('offline') || statusLower.includes('stopped') || statusLower.includes('离线')) {
         console.log(`⚡ 检测到离线 [${statusText}]，尝试触发启动...`);
 
         try {
                   // 使用 SVG 结构精准定位三角形启动按钮 (根据源码 button.btn-start title="Start Server")
-            const startBtn = page.locator('button.btn-start[title="Start Server"]').first();
-            
+            const startBtn = page.locator('button.btn-start[title="Start Server"]').first();            
                   // 检查按钮是否可见，且没有 disabled 属性
             if (await startBtn.isVisible() && await startBtn.getAttribute('disabled') === null) {
-                await startBtn.click();
-                
+                await startBtn.click();                
                 // 标记变量为 true，后面的通知会显示 "✅ 已触发启动"
-                serverStarted = true; 
-                
+                serverStarted = true;                 
                 console.log("✅ 启动指令已发出");
                 // 仅等待 1 秒让请求发出去，立刻继续，不浪费时间
                 await page.waitForTimeout(1000); 
@@ -160,7 +154,7 @@ async function sendTelegramMessage(message) {
     const serverId = page.url().split('/').pop() || 'unknown';
     console.log(`🆔 解析到 Server ID: ${serverId}`); 
 
-    // 【新增点 1/2】：定义通用报告函数
+    // 定义通用报告函数
     const getReport = (icon, title, hours, detail) => {
         return `${icon} <b>GreatHost ${title}</b>\n\n` +
                `🆔 <b>服务器ID:</b> <code>${serverId}</code>\n` +
@@ -334,8 +328,7 @@ async function sendTelegramMessage(message) {
                                 `📅 <b>时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
             await sendTelegramMessage(errorDetail);
         }
-    } finally {
-    // 无论成功失败，确保关闭浏览器释放资源
+    } finally {    
     if (browser) {
         console.log("🧹 [Exit] 正在关闭浏览器...");
         await browser.close();
