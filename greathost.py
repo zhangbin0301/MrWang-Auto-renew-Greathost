@@ -255,35 +255,31 @@ def run_task():
             send_telegram(message)
             return
 
-        # === 10. 执行续期 (模拟真人) (JS 1:1) ===
-        print("⚡ 启动模拟真人续期流程...")
+     # === 10. 执行续期 (模拟物理动作) ===
+        print("⚡ 启动高仿真续期点击...")
         try:
-            # 1. 模拟滚动
-            driver.execute_script(f"window.scrollBy(0, {random.randint(50, 200)});")
-            print("👉 模拟页面滚动...")
+            from selenium.webdriver.common.action_chains import ActionChains
             
-            # 2. 随机发呆
-            time.sleep(random.uniform(2, 5))
+            # 1. 先平滑滚动，让按钮出现在屏幕中间
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", renew_btn)
+            time.sleep(random.uniform(1, 2))
 
-            # 3. 模拟鼠标平滑移动
-            ActionChains(driver).move_to_element_with_offset(renew_btn, random.uniform(-5, 5), random.uniform(-5, 5)).perform()
-            print("👉 鼠标平滑轨迹模拟完成")
-
-            # 4. 执行“三保险”点击
-            # [1/3] 物理点击
-            renew_btn.click()
-            print("👉 [1/3] 物理点击已执行")
-
-            # [2/3] DOM 事件注入
-            driver.execute_script("const btn=document.querySelector('#renew-free-server-btn');if(btn){['mouseenter','mousedown','mouseup','click'].forEach(evt=>{btn.dispatchEvent(new MouseEvent(evt,{bubbles:true,cancelable:true,view:window}))});}")
-            print("👉 [2/3] 事件链路注入完成")
-
-            # [3/3] 逻辑函数直接调用
-            driver.execute_script("if(typeof renewFreeServer==='function'){renewFreeServer();}")
-            print("👉 [3/3] 函数触发检查完毕")
-
+            # 2. 模拟鼠标平滑移动到按钮的一个随机位置点
+            actions = ActionChains(driver)
+            # 在按钮中心点附近随机偏离几像素，模拟人类的不精确性
+            off_x = random.randint(-10, 10)
+            off_y = random.randint(-5, 5)
+            
+            actions.move_to_element_with_offset(renew_btn, off_x, off_y)
+            actions.pause(random.uniform(0.2, 0.5)) # 模拟人类点击前的短暂迟疑
+            actions.click()
+            actions.perform()
+            
+            print(f"👉 物理模拟点击成功 (偏移: {off_x}, {off_y})")
         except Exception as e:
-            print(f"🚨 点击过程异常: {e}")
+            print(f"🚨 物理点击失败: {e}")
+            # 万不得已时，在这里才考虑启用 JS 点击作为“保命”手段
+            # driver.execute_script("arguments[0].click();", renew_btn)
 
         # === 11. 深度等待同步 (JS 1:1) ===
         print("⏳ 正在进入 20 秒深度等待，确保后端写入数据...")
