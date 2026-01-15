@@ -88,7 +88,10 @@ def run_task():
     wait_time = random.randint(1, 300)
     print(f"⏳ 为了模拟真人，随机等待 {wait_time} 秒后启动...")
     time.sleep(wait_time)
-
+    
+    server_id = "未知"
+    before_hours = 0
+    after_hours = 0
     driver = None
     server_started = False
     try:
