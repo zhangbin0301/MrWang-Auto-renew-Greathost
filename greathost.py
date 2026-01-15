@@ -96,7 +96,7 @@ def run_task():
         check_proxy_ip(driver)
 
         # === 登录流程 ===
-        wait = WebDriverWait(driver, 25)
+        wait = WebDriverWait(driver, 15)
         print("🔑 正在执行登录...")
         driver.get("https://greathost.es/login")
         wait.until(EC.presence_of_element_located((By.NAME, "email"))).send_keys(EMAIL)
