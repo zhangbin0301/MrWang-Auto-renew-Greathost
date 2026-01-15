@@ -23,41 +23,45 @@ async function sendTelegramMessage(message) {
   });
 }
 
-(async () => {
-  const GREATHOST_URL = "https://greathost.es";
-  const LOGIN_URL = `${GREATHOST_URL}/login`;
-  const HOME_URL = `${GREATHOST_URL}/dashboard`;
+(async () => {     
+    const GREATHOST_URL = "https://greathost.es";    
+    const LOGIN_URL = `${GREATHOST_URL}/login`;
+    const HOME_URL = `${GREATHOST_URL}/dashboard`;
 
-// --- 修改开始：仅支持 SOCKS5 代理启动 ---
-const launchOptions = { 
-  headless: true,
-  args: ['--no-sandbox'] 
-};
+    let proxyStatusTag = "🌐 直连模式";
 
-if (PROXY_URL) {
-    // 强制补全 socks5:// 前缀（如果用户没填的话）
-    const serverUrl = PROXY_URL.startsWith('socks') ? PROXY_URL : `socks5://${PROXY_URL}`;
-    launchOptions.proxy = { server: serverUrl };
-    console.log(`🌍 [SOCKS5] 代理已就绪: ${serverUrl.split('@').pop()}`);
-}
+    // --- 修改开始：仅支持 SOCKS5 代理启动 ---
+    const launchOptions = { headless: true, args: ['--no-sandbox'] };
+    const proxyData = PROXY_URL ? new URL(PROXY_URL) : null;
 
-const browser = await chromium.launch(launchOptions);
+    if (proxyData) {        
+        launchOptions.proxy = { server: `socks5://${proxyData.host}` };
+        proxyStatusTag = `🔒 代理模式 (${proxyData.host})`;
+    }
+
+    const browser = await chromium.launch(launchOptions);
+
+    const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 720 },
+        locale: 'es-ES',
+        proxy: proxyData ? {
+            server: `socks5://${proxyData.host}`,
+            username: proxyData.username,
+            password: proxyData.password
+        } : undefined
+    });
+
+    const page = await context.newPage();
   
-  // 增加 User-Agent 伪装，让它看起来像真实的 Windows Chrome
-  const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 720 },
-      locale: 'es-ES' 
-  });
-  const page = await context.newPage();  
+  try {
+    console.log(`🚀 任务启动 | ${proxyStatusTag}`);
 
-  // 抹除 Playwright 特征
+    // 抹除 Playwright 特征（高级伪装）
     await page.addInitScript(() => {
-        // 覆盖 webdriver 属性
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        // 模拟插件列表
         Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en'] });
-        // 伪造 WebGL 指纹
+        
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function(parameter) {
             if (parameter === 37445) return 'Intel Inc.';
@@ -65,30 +69,27 @@ const browser = await chromium.launch(launchOptions);
             return getParameter(parameter);
         };
     });
-  // 抹除 Playwright 特征  
 
-  try {
+    console.log(`✅ 环境初始化完成 | ${proxyStatusTag}`);
+  
     // --- 新增：代理 IP 检查与熔断机制 ---
-    if (PROXY_URL && PROXY_URL.trim()) {
+    if (PROXY_URL) {
       console.log("🌍 [Check] 正在检测代理 IP...");
       try {
         await page.goto("https://api.ipify.org?format=json", { timeout: 20000 });
         const ipInfo = JSON.parse(await page.innerText('body'));
-        console.log(`✅ 当前出口 IP: ${ipInfo.ip}`);
+        console.log(`✅ 当前出口 IP: ${ipInfo.ip}`);        
         
-        // 校验 IP 前缀（可选）需要设置和sock5代码IP头一样
         if (!ipInfo.ip.startsWith("138.68")) {
-          console.log(`⚠️ 警告: IP (${ipInfo.ip}) 似乎不是预期的代理 IP！`);
+            console.log(`⚠️ 警告: IP (${ipInfo.ip}) 似乎不是预期的代理 IP！`);
         }
       } catch (e) {
         const errorMsg = `❌ 代理检查失败: ${e.message}`;
         console.error(errorMsg);
-        await sendTelegramMessage(`🚨 <b>GreatHost 代理异常</b>\n${errorMsg}`);
+        await sendTelegramMessage(`🚨 <b>GreatHost 代理异常</b>\n模式: ${proxyStatusTag}\n原因: ${e.message}`);
         throw new Error("Proxy Check Failed - 脚本停止以防止直连"); 
       }
-    } else {
-      console.log("🌍 [Check] 未设置代理，跳过检测。");
-    }    
+    } 
 
     // === 1. 登录 ===
     console.log("🔑 打开登录页：", LOGIN_URL);
@@ -337,28 +338,23 @@ const browser = await chromium.launch(launchOptions);
     // === 14. 发送正常消息 ===
     await sendTelegramMessage(getReport(statusIcon, statusTitle, afterHours, tip));   
 
-  } catch (err) { // 这个 } 闭合的是脚本主体部分的 try
+  } catch (err) {
     console.error("❌ 脚本运行崩溃:", err.message);
 
+    // 如果报错是因为“代理检查失败”，说明前面已经发过 TG 了，这里就不重复发了
     if (!err.message.includes("Proxy Check Failed")) {
-      if (typeof getReport === 'function') {
-        const currentHours = (typeof afterHours !== 'undefined' ? afterHours : (typeof beforeHours !== 'undefined' ? beforeHours : 0));
-        await sendTelegramMessage(getReport(
-          '🚨',
-          '脚本运行报错',
-          currentHours,
-          `错误详情: <code>${err.message}</code>`
-        ));
-      } else {
-        const errorDetail = `🚨 <b>GreatHost 脚本崩溃</b>\n\n` +
-                            `❌ <b>错误:</b> <code>${err.message}</code>\n` +
-                            `📅 <b>时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+        const errorDetail = 
+            `🚨 <b>GreatHost 脚本崩溃</b>\n\n` +
+            `🌐 <b>连接模式:</b> ${proxyStatusTag}\n` +
+            `❌ <b>错误信息:</b> <code>${err.message}</code>\n` +
+            `📅 <b>检查时间:</b> ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+        
         await sendTelegramMessage(errorDetail);        
-      }
-    }    
+    }   
 
   } finally {
-    if (typeof browser !== 'undefined' && browser && typeof browser.close === 'function') {
+    
+    if (typeof browser !== 'undefined' && browser) {
         try {
             console.log("🧹 [Exit] 正在关闭浏览器...");
             await browser.close();
