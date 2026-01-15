@@ -28,8 +28,7 @@ jobs:
          GREATHOST_EMAIL: ${{ secrets.GREATHOST_EMAIL }}
          GREATHOST_PASSWORD: ${{ secrets.GREATHOST_PASSWORD }}
          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-         CHAT_ID: ${{ secrets.CHAT_ID }}
-         PROXY_URL: ${{ secrets.PROXY_URL }}
+         CHAT_ID: ${{ secrets.CHAT_ID }}         
          HEADLESS: 'true'
         run: npm start
 
