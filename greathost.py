@@ -18,7 +18,7 @@ EMAIL = os.getenv("GREATHOST_EMAIL") or ""
 PASSWORD = os.getenv("GREATHOST_PASSWORD") or ""
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or ""
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or ""
-# sock5代码，不需要留空值 70行左右要填上IP头
+# sock5代码，不需要留空值 64行左右要填上IP头
 PROXY_URL = os.getenv("PROXY_URL") or ""
 
 def send_telegram(msg_text):
@@ -48,39 +48,41 @@ def get_now_shanghai():
 
 
 def check_proxy_ip(driver):
-    """
-    优化后的代理检测：
-    1. 使用 Requests 预检以节省资源
-    2. 增加 IP 段强制校验 (138.68)
-    3. 特殊字符替换防止 TG 发送失败
-    """
     if not PROXY_URL.strip():
         print("🌍 [Check] 未设置代理，跳过预检。")
         return True
-
-    print("🌍 [Check] 正在通过 Requests 预检代理...")
-    proxy_dict = {"http": PROXY_URL, "https": PROXY_URL}
     
-    try:
-        # 1. 基础连接检测
-        resp = requests.get("https://api.ipify.org?format=json", proxies=proxy_dict, timeout=10)
-        current_ip = resp.json().get('ip')
+    proxy_dict = {"http": PROXY_URL, "https": PROXY_URL}
+    now = get_now_shanghai()
+    
+    try:        
+        resp = requests.get("https://api.ipify.org?format=json", proxies=proxy_dict, timeout=12)
+        current_ip = resp.json().get('ip')      
         print(f"✅ 代理预检成功，当前 IP: {current_ip}")
 
         # 2. IP 段强制校验
         if not current_ip.startswith("138.68"):
             error_info = f"IP 地址({current_ip})不符合预期段(138.68)，疑似代理未生效！"
-            print(f"⚠️ {error_info}")
-            send_telegram(f"🚨 <b>IP 校验失败</b>\n<code>{error_info}</code>")
+            print(f"⚠️ {error_info}")           
+            
+            msg = (f"🚨 <b>GreatHost IP 校验拦截</b>\n\n"
+                   f"❌ <b>详情:</b> <code>{error_info}</code>\n"
+                   f"📅 <b>时间:</b> {now}\n"
+                   f"⚠️ <b>警告:</b> 脚本熔断")
+            send_telegram(msg)
             raise Exception(error_info)
 
-    except Exception as e:        
+    except Exception as e:
         clean_error = str(e).replace('<', '[').replace('>', ']')
         error_info = f"代理预检或校验失败: {clean_error}"
+        print(f"❌ {error_info}")
         
-        print(f"❌ {error_info}")        
-        if "IP 校验失败" not in error_info:
-            send_telegram(f"🚨 <b>代理检查失败 (预检)</b>\n<code>{error_info}</code>")
+        # 排除掉上面手动 raise 的情况，防止重复发送 TG
+        if "IP 校验拦截" not in error_info:
+            msg = (f"🚨 <b>GreatHost 代理预检失败</b>\n\n"
+                   f"❌ <b>详情:</b> <code>{clean_error}</code>\n"
+                   f"📅 <b>时间:</b> {now}")
+            send_telegram(msg)
         raise Exception(error_info)
 
     # 3. 浏览器层面的最终确认
@@ -93,8 +95,12 @@ def check_proxy_ip(driver):
         clean_error = str(e).replace('<', '[').replace('>', ']')
         error_info = f"浏览器访问代理超时: {clean_error}"
         print(f"❌ {error_info}")
-        send_telegram(f"🚨 <b>代理检查失败 (浏览器)</b>\n<code>{error_info}</code>")
-        raise Exception(error_info)     
+        
+        msg = (f"🚨 <b>GreatHost 浏览器检测超时</b>\n\n"
+               f"❌ <b>详情:</b> <code>{clean_error}</code>\n"
+               f"📅 <b>时间:</b> {now}")
+        send_telegram(msg)
+        raise Exception(error_info)    
 
 def get_browser():
     sw_options = {'proxy': {'http': PROXY_URL, 'https': PROXY_URL, 'no_proxy': 'localhost,127.0.0.1'}}
@@ -407,10 +413,10 @@ def run_task():
             print(" 🚨 续期失败 🚨 ")
 
     except Exception as err:
-        # 统一打印错误日志
-        print(f" ❌ 运行时错误 ❌ : {err}")
+        # 1. 打印原始错误日志到控制台
+        print(f"❌ 运行时捕获到异常: {err}")
         
-        # 1. 尝试保存页面源码
+        # 2. 尝试保存当前页面源码（用于 GitHub Actions 离线分析）
         try:
             if driver:
                 with open("error_page.html", "w", encoding="utf-8") as f:
@@ -418,23 +424,35 @@ def run_task():
                 print("💾 已保存错误页面源码至 error_page.html")
         except: pass
 
-        # 2. 发送的报错通知
-        if "Proxy Check Failed" not in str(err):
+        # 3. 智能逻辑判定：是否需要发送业务报警通知
+        # 将错误转为字符串并清洗 HTML 特殊字符，防止 TG 发送失败
+        err_str = str(err).replace('<', '[').replace('>', ']')
+        
+        # 核心逻辑：如果报错原因不包含“代理”或“Proxy Check Failed”，
+        # 说明 check_proxy_ip 已经通过，现在的报错来自于登录、点击或判定环节。
+        if "Proxy Check Failed" not in err_str and "代理" not in err_str:
+            now = get_now_shanghai()
             current_url = driver.current_url if driver else "未知"
             
-            # 消息模板
-            error_message = (f"🚨 <b>GreatHost 脚本报错</b>\n\n"
-                             f"🆔 <b>ID:</b> <code>{server_id}</code>\n"
-                             f"❌ <b>错误详情:</b> <code>{str(err)}</code>\n"
+            error_message = (f"🚨 <b>GreatHost 脚本业务报错</b>\n\n"
+                             f"🆔 <b>服务器ID:</b> <code>{server_id}</code>\n"
+                             f"❌ <b>错误详情:</b> <code>{err_str}</code>\n"
                              f"📍 <b>报错位置:</b> {current_url}\n"
-                             f"📅 <b>发生时间:</b> {get_now_shanghai()}\n\n"
-                             f"💡 <b>提示:</b> 请检查错误源码或代理连接。")
+                             f"📅 <b>发生时间:</b> {now}\n\n"
+                             f"💡 <b>提示:</b> 代理连接正常，此报错可能来自登录过期或页面 UI 变动。")
             
             send_telegram(error_message)
+            print("📢 已发送业务报错 TG 通知")
+        else:
+            print("⏭️ 检测到为代理环节报错，已由 check_proxy_ip 处理，此处跳过二次通知。")
+
     finally:
+        # 4. 彻底清理浏览器进程
         if driver:
-            driver.quit()
-            print("🧹 浏览器已关闭")
+            try:
+                driver.quit()
+                print("🧹 浏览器进程已安全关闭")
+            except: pass
 
 if __name__ == "__main__":
     run_task()
