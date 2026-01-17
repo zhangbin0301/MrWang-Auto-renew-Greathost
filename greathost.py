@@ -286,7 +286,7 @@ def run_task():
 
                         perform_step(      
                                 driver,
-                                wait
+                                wait,
                                 "启动按钮",
                                 (By.CSS_SELECTOR, 'button.btn-start, .action-start'),     
                                 "button.btn-start, .action-start"
