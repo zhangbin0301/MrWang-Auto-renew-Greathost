@@ -189,14 +189,17 @@ def go_to_details(driver, wait):
     return driver.current_url.split('/')[-1] or "unknown"
 
 def get_hours(driver, selector="#accumulated-time"):
-    for _ in range(6):
+    for _ in range(3):
         try:
-            text = driver.execute_script(f"return document.querySelector('{selector}').textContent;") or driver.find_element(By.CSS_SELECTOR, selector).text
-            num = int(re.sub(r'\D', '', text)) if re.search(r'\d', text) else 0
-            if num > 0: return num, text
-        except: text = ""
+            el = WebDriverWait(driver, 6).until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+            text = driver.execute_script("return (arguments[0]||{textContent:''}).textContent;", el) or el.text or ""
+        except:
+            try: text = driver.execute_script("return (document.querySelector(arguments[0])||{textContent:''}).textContent;", selector) or ""
+            except: text = ""
+        num = int(re.sub(r'\D', '', text)) if re.search(r'\d', text or '') else 0
+        if num: return num, text.strip()
         time.sleep(3)
-    return 0, text
+    return 0, (text or "").strip()
 
 def get_error_msg(driver):
     try: return driver.find_element(By.CSS_SELECTOR, '.toast-error, .alert-danger, .toast-message').text or ""
