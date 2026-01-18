@@ -195,7 +195,7 @@ def get_hours(driver, selector="#accumulated-time"):
             num = int(re.sub(r'\D', '', text)) if re.search(r'\d', text) else 0
             if num > 0: return num, text
         except: text = ""
-        time.sleep(4)
+        time.sleep(3)
     return 0, text
 
 def get_error_msg(driver):
@@ -204,12 +204,8 @@ def get_error_msg(driver):
 
 def renew_click(driver, wait):
     perform_step(driver, wait, "Renew button", (By.ID,'renew-free-server-btn'))
-    time.sleep(1); msg = get_error_msg(driver)
-    if msg: print("Captured msg:", msg)
-    
-    print("Waiting 20s for backend write"); time.sleep(20)
-    try: driver.refresh()
-    except: print("Refresh failed"); time.sleep(2)
+    time.sleep(2); msg = get_error_msg(driver) # 点击后只等 2s 看有没有报错提示
+    # 删掉原来的 time.sleep(20) 和 driver.refresh()
     return msg
 
 def confirm_and_start(driver, wait):
