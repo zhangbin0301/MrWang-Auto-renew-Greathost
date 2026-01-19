@@ -110,7 +110,7 @@ def run_task():
         raw_status = info_res.get('status', 'Unknown')
         
         # 匹配详细状态图标和名称
-        status_info = STATUS_MAP.get(raw_status.capitalize(), ["🟢", raw_status])
+        status_info = STATUS_MAP.get(raw_status.capitalize(), ["❓", raw_status])
         status_display = f"{status_info[0]} {status_info[1]}"
 
         # 4. 抓取续期前时间 (contract 页面)
