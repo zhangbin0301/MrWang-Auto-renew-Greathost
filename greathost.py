@@ -28,11 +28,6 @@ STATUS_MAP = {
 def now_shanghai():
     return datetime.now(ZoneInfo("Asia/Shanghai")).strftime('%Y/%m/%d %H:%M:%S')
 
-def get_proxy_expected_host():
-    if not PROXY_URL: return None
-    try: return urlparse(PROXY_URL).hostname
-    except: return None
-
 def calculate_hours(date_str):
     try:
         if not date_str: return 0
@@ -45,7 +40,7 @@ def fetch_api(driver, url, method="GET"):
     """执行 JS 抓取 API 并打印调试信息"""
     script = f"return fetch('{url}', {{method:'{method}'}}).then(r=>r.json()).catch(e=>({{success:false,message:e.toString()}}))"
     res = driver.execute_script(script)
-    print(f"📡 API 调用 [{method}] {url}\n📦 原始响应: {json.dumps(res, ensure_ascii=False)}")
+    print(f"📡 API 调用 [{method}] {url}")
     return res
 
 def send_notice(kind, fields):
@@ -54,13 +49,17 @@ def send_notice(kind, fields):
     body = "\n".join([f"{e} <b>{l}:</b> {v}" for e,l,v in fields])
     msg = f"{titles.get(kind, '‼️ 通知')}\n\n{body}\n📅 <b>时间:</b> {now_shanghai()}"
     if TELEGRAM_BOT_TOKEN:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=5)
+        try:
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                          data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=5)
+        except: pass
 
 # ================= 主流程 =================
 def run_task():
     driver = None
-    server_id, server_name = "未知", "未知"
+    target_name = "loveMC"  # 设定目标服务器名称
+    server_id = "未知"
+    
     try:
         opts = Options()
         opts.add_argument("--headless=new")
@@ -68,27 +67,32 @@ def run_task():
         wait = WebDriverWait(driver, 25)
 
         # 1. 登录
-        print(f"🔑 正在尝试登录: {EMAIL}...")
+        print(f"🔑 正在登录: {EMAIL}...")
         driver.get("https://greathost.es/login")
         wait.until(EC.presence_of_element_located((By.NAME,"email"))).send_keys(EMAIL)
         driver.find_element(By.NAME,"password").send_keys(PASSWORD)
         driver.find_element(By.CSS_SELECTOR,"button[type='submit']").click()
         wait.until(EC.url_contains("/dashboard"))
-        print("✅ 登录成功，进入 Dashboard")
 
-        # 2. 获取 Server 基础信息
-        servers = fetch_api(driver, "/api/servers")
-        if not servers or not isinstance(servers, list): raise Exception("未能获取服务器列表")
-        server_id = servers[0].get('id')
-        print(f"🆔 锁定服务器 ID: {server_id}")
+        # 2. 获取服务器列表并过滤目标 [修正点]
+        res = fetch_api(driver, "/api/servers")
+        server_list = res.get('servers', []) # 从字典中提取列表
         
-        # 3. 获取详细状态信息 (包含 Name)
+        # 寻找名为 loveMC 的服务器
+        target_server = next((s for s in server_list if s.get('name') == target_name), None)
+        
+        if not target_server:
+            raise Exception(f"在账号下未找到名为 '{target_name}' 的服务器")
+            
+        server_id = target_server.get('id')
+        print(f"✅ 已锁定目标服务器: {target_name} (ID: {server_id})")
+        
+        # 3. 获取实时状态
         info = fetch_api(driver, f"/api/servers/{server_id}/information")
-        server_name = info.get('name', '未命名')
         real_status = info.get('status', 'Unknown')
-        print(f"📋 服务器详情: 名称={server_name} | 状态={real_status}")
+        print(f"📋 状态核对: {target_name} 当前状态为 {real_status}")
 
-        # 4. 合同页预检 (时间 & 冷却按钮)
+        # 4. 合同页预检
         driver.get(f"https://greathost.es/contracts/{server_id}")
         time.sleep(2)
         
@@ -97,42 +101,39 @@ def run_task():
         
         btn = wait.until(EC.presence_of_element_located((By.ID, "renew-free-server-btn")))
         btn_text = btn.text.strip()
-        print(f"🔘 按钮文本: '{btn_text}' | 当前剩余: {before_h}h")
+        print(f"🔘 按钮状态: '{btn_text}' | 剩余: {before_h}h")
         
         if "Wait" in btn_text:
             m = re.search(r"Wait\s+(\d+\s+\w+)", btn_text)
             wait_time = m.group(1) if m else btn_text
-            print(f"⏳ 触发冷却防御: {wait_time}")
-            send_notice("cooldown", [("📛","名称",server_name), ("⏳","等待",wait_time), ("📊","当前",f"{before_h}h")])
+            send_notice("cooldown", [("📛","名称",target_name), ("⏳","等待",wait_time), ("📊","当前",f"{before_h}h")])
             return
 
-        # 5. 执行续期动作
-        print("🚀 发起续期 POST 请求...")
-        res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
+        # 5. 执行续期
+        print(f"🚀 正在为 {target_name} 执行续期 POST...")
+        renew_res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
         
-        is_success = res.get('success', False)
-        hours_added = res.get('details', {}).get('hoursAdded', 0)
-        after_h = calculate_hours(res.get('details', {}).get('nextRenewalDate')) or before_h
+        is_success = renew_res.get('success', False)
+        hours_added = renew_res.get('details', {}).get('hoursAdded', 0)
+        after_h = calculate_hours(renew_res.get('details', {}).get('nextRenewalDate')) or before_h
         
+        # 图标映射
         icon, status_name = STATUS_MAP.get(real_status.capitalize(), ["🟢", real_status])
         status_disp = f"{icon} {status_name}"
 
-        # 6. 最终判定逻辑 (包含 5 天上限西班牙语处理)
+        # 6. 结果判定
         if is_success and hours_added > 0:
-            print(f"🎉 成功增加 {hours_added} 小时")
-            send_notice("renew_success", [("📛","名称",server_name), ("⏰","变化",f"{before_h} ➔ {after_h}h"), ("🚀","状态",status_disp)])
-        elif "5 d" in str(res.get('message', '')) or (before_h > 110):
-            print("🈵 判定为已达上限 (5 days limit)")
-            send_notice("maxed_out", [("📛","名称",server_name), ("⏰","余额",f"{after_h}h"), ("🚀","状态",status_disp), ("💡","提示","已达5天上限")])
+            send_notice("renew_success", [("📛","名称",target_name), ("⏰","变化",f"{before_h} ➔ {after_h}h"), ("🚀","状态",status_disp)])
+        elif "5 d" in str(renew_res.get('message', '')) or (before_h > 110):
+            send_notice("maxed_out", [("📛","名称",target_name), ("⏰","余额",f"{after_h}h"), ("🚀","状态",status_disp), ("💡","提示","已达5天上限")])
         else:
-            print(f"❌ 续期失败，原因: {res.get('message')}")
-            send_notice("renew_failed", [("📛","名称",server_name), ("💡","原因",res.get('message','未知失败'))])
+            send_notice("renew_failed", [("📛","名称",target_name), ("💡","原因",renew_res.get('message','未知失败'))])
 
     except Exception as e:
-        print(f"🚨 脚本异常: {e}")
-        send_notice("error", [("📛","服务器",server_name), ("❌","故障",f"<code>{str(e)[:100]}</code>")])
+        print(f"🚨 运行异常: {e}")
+        send_notice("error", [("📛","目标",target_name), ("❌","故障",f"<code>{str(e)[:100]}</code>")])
     finally:
-        if driver: driver.quit(); print("🧹 浏览器会话已关闭")
+        if driver: driver.quit()
 
 if __name__ == "__main__":
     run_task()
