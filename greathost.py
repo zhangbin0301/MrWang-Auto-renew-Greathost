@@ -15,9 +15,9 @@ PASSWORD = os.getenv("GREATHOST_PASSWORD", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 PROXY_URL = os.getenv("PROXY_URL", "")
-# 需要续期服务器名称。只有一个服务器可留空
-TARGET_NAME_CONFIG = os.getenv("TARGET_NAME", "loveMC") 
-SERVER_ID_ENV = os.getenv("TARGET_SERVER_ID", "")  # 可选：优先指定 server_id
+TARGET_NAME_CONFIG = os.getenv("TARGET_NAME", "loveMC")
+# 可选优先指定 server_id，避免同名歧义
+TARGET_SERVER_ID = os.getenv("TARGET_SERVER_ID", "")
 
 # 状态映射表
 STATUS_MAP = {
@@ -45,7 +45,18 @@ def calculate_hours(date_str):
         return 0
 
 def fetch_api(driver, url, method="GET"):
-    script = f"return fetch('{url}', {{method:'{method}'}}).then(r=>r.json()).catch(e=>({{success:false,message:e.toString()}}))"
+    """
+    在浏览器上下文执行 fetch。
+    如果响应不是 JSON，则返回 {'success': False, '__raw_text': '<html...>'}
+    """
+    script = f"""
+    return fetch('{url}', {{method:'{method}'}})
+      .then(async r => {{
+          const text = await r.text();
+          try {{ return JSON.parse(text); }} catch(e) {{ return {{success:false, __raw_text: text}}; }}
+      }})
+      .catch(e=>({{success:false,message:e.toString()}}))
+    """
     return driver.execute_script(script)
 
 # Telegram 通知系统
@@ -80,7 +91,7 @@ def send_notice(kind, fields):
 def run_task():
     driver = None
     server_id = "未知"
-    serverName = "未知名称"   # 预先初始化，避免 except 中未定义
+    serverName = "未知名称"
     try:
         opts = Options()
         opts.add_argument("--headless=new"); opts.add_argument("--no-sandbox")
@@ -97,16 +108,20 @@ def run_task():
         driver.find_element(By.CSS_SELECTOR,"button[type='submit']").click()
         wait.until(EC.url_contains("/dashboard"))
 
-        # 2. 获取 ID 并同时抓取 name（优先使用环境变量 TARGET_SERVER_ID）
+        # 2. 获取 ID 并同时抓取 name（优先使用 TARGET_SERVER_ID）
         res = fetch_api(driver, "/api/servers")
-        print("DEBUG /api/servers 返回：", json.dumps(res, indent=2, ensure_ascii=False))
+        try:
+            print("DEBUG /api/servers 返回：", json.dumps(res, indent=2, ensure_ascii=False))
+        except Exception:
+            print("DEBUG /api/servers 返回 (non-serializable):", type(res))
+
         server_list = res.get("servers") if isinstance(res, dict) else res
         server_list = server_list or []
 
-        if SERVER_ID_ENV:
-            target_server = next((s for s in server_list if s.get('id') == SERVER_ID_ENV), None)
+        if TARGET_SERVER_ID:
+            target_server = next((s for s in server_list if s.get('id') == TARGET_SERVER_ID), None)
             if not target_server:
-                raise Exception(f"未找到指定的 server_id: {SERVER_ID_ENV}")
+                raise Exception(f"未找到指定的 server_id: {TARGET_SERVER_ID}")
         else:
             matches = [s for s in server_list if s.get('name') == TARGET_NAME_CONFIG]
             if not matches:
@@ -114,7 +129,6 @@ def run_task():
             if len(matches) == 1:
                 target_server = matches[0]
             else:
-                # 多个同名：打印候选并按 createdAt 选择最新（可改为其他规则或抛出让人工确认）
                 print("DEBUG 找到多个同名服务器，候选列表：", json.dumps(matches, indent=2, ensure_ascii=False))
                 def _parse_created(s):
                     try:
@@ -126,35 +140,70 @@ def run_task():
                 print("DEBUG 已自动选择最新创建的同名服务器：", json.dumps(target_server, indent=2, ensure_ascii=False))
 
         server_id = target_server.get('id')
-        serverName = target_server.get('name') or "未知名称"
+        serverName = target_server.get('name') or serverName
         print("DEBUG 选中服务器：name =", serverName, "id =", server_id, "createdAt =", target_server.get('createdAt'))
-
 
         # 3. 抓取 status (information 页面)
         driver.get(f"https://greathost.es/server-information-free.html?id={server_id}")
         time.sleep(5)
         info_res = fetch_api(driver, f"/api/servers/{server_id}/information")
-        raw_status = info_res.get('status', 'Unknown')
-        
-        # 匹配详细状态图标和名称
+        raw_status = info_res.get('status', 'Unknown') if isinstance(info_res, dict) else 'Unknown'
         status_info = STATUS_MAP.get(raw_status.capitalize(), ["❓", raw_status])
         status_display = f"{status_info[0]} {status_info[1]}"
 
-        # 4. 抓取续期前时间 (contract 页面)
+        # 4. 抓取续期前时间 (contract 页面) —— 安全解析与调试
         driver.get(f"https://greathost.es/contracts/{server_id}")
         time.sleep(5)
         contract_res = fetch_api(driver, f"/api/servers/{server_id}/contract")
-        print("DEBUG /contract 返回：", json.dumps(contract_res, indent=2, ensure_ascii=False))
+        try:
+            print("DEBUG /contract raw:", json.dumps(contract_res, indent=2, ensure_ascii=False))
+        except Exception:
+            print("DEBUG /contract raw (non-serializable):", type(contract_res), str(contract_res)[:1000])
 
-        # 先解析再打印 debug
-        c_data = contract_res.get('contract', {}) or {}
-        r_info = c_data.get('renewalInfo', {}) or {}
+        # 如果返回原始文本（HTML），fetch_api 会把它放在 __raw_text
+        if isinstance(contract_res, dict) and contract_res.get("__raw_text"):
+            raw = contract_res.get("__raw_text")
+            print("DEBUG /contract 返回非 JSON 内容（可能是登录页或错误页），原文片段：", raw[:1000])
+            # 简单重试一次
+            print("DEBUG 尝试重新加载页面并重试一次 contract 接口...")
+            driver.get(f"https://greathost.es/contracts/{server_id}")
+            time.sleep(5)
+            contract_res = fetch_api(driver, f"/api/servers/{server_id}/contract")
+            try:
+                print("DEBUG /contract retry raw:", json.dumps(contract_res, indent=2, ensure_ascii=False))
+            except Exception:
+                print("DEBUG /contract retry raw (non-serializable):", type(contract_res), str(contract_res)[:1000])
+            if isinstance(contract_res, dict) and contract_res.get("__raw_text"):
+                # 重试仍失败：打印 seleniumwire 请求以便进一步排查，然后抛出异常
+                print("DEBUG contract 接口重试仍返回 HTML，开始打印相关请求（最多 20 条）以便排查：")
+                for req in driver.requests[-20:]:
+                    if "/contract" in (req.url or "") or "/api/servers" in (req.url or ""):
+                        print(req.method, req.url, req.response.status_code if req.response else None)
+                        if req.response:
+                            try:
+                                print(req.response.body.decode('utf-8', errors='replace')[:2000])
+                            except Exception:
+                                print("DEBUG 无法解码响应体")
+                raise Exception("contract 接口未返回 JSON（重试失败），可能会话失效或被拦截")
 
-        before_h = calculate_hours(r_info.get('nextRenewalDate'))
+        # 解析 contract_res（兼容不同返回结构）
+        c_data = {}
+        if isinstance(contract_res, dict):
+            c_data = contract_res.get('contract') or {}
+            if not isinstance(c_data, dict):
+                c_data = {}
+
+        r_info = c_data.get('renewalInfo', {}) if isinstance(c_data, dict) else {}
+
+        # 优先使用 contract 返回的 serverName（若存在），否则保留之前的 target_server name
+        serverName = c_data.get("serverName") or serverName
+
+        next_dt = r_info.get('nextRenewalDate')
+        before_h = calculate_hours(next_dt)
         last_renew_str = r_info.get('lastRenewalDate')
 
         print("DEBUG serverName =", serverName)
-        print("DEBUG nextRenewalDate =", r_info.get("nextRenewalDate"))
+        print("DEBUG nextRenewalDate =", next_dt)
         print("DEBUG lastRenewalDate =", last_renew_str)
         print("DEBUG before_h =", before_h)
 
@@ -172,7 +221,6 @@ def run_task():
             if last_time:
                 minutes_passed = (now_time - last_time).total_seconds() / 60
 
-            # 调试输出：显示原始值与计算结果
             print("DEBUG 冷却检查原始 last_renew_str =", last_renew_str)
             print("DEBUG clean_last =", clean_last)
             print("DEBUG last_time (UTC) =", last_time)
@@ -189,23 +237,23 @@ def run_task():
                 print("DEBUG 不在冷却期，minutes_passed =", minutes_passed)
 
         # 5. 执行续期 POST
-        print(f"🚀 正在为 {TARGET_NAME_CONFIG} 发送续期请求...")
+        print(f"🚀 正在为 {serverName} 发送续期请求...")
         renew_res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
-        print("DEBUG renew_res:", json.dumps(renew_res, indent=2, ensure_ascii=False))
+        try:
+            print("DEBUG renew_res:", json.dumps(renew_res, indent=2, ensure_ascii=False))
+        except Exception:
+            print("DEBUG renew_res (non-serializable):", type(renew_res), str(renew_res)[:1000])
 
         # 6. 循环等待后台写入 nextRenewalDate（最多等 15 秒）
         after_h = 0
-        for _ in range(5):  # 每次等 3 秒，总共最多 15 秒
+        for _ in range(5):
             time.sleep(3)
             renew_contract = fetch_api(driver, f"/api/servers/{server_id}/contract")
-
-            # 安全打印原始返回（避免 json.dumps 抛异常）
             try:
                 print("DEBUG loop raw:", json.dumps(renew_contract, ensure_ascii=False))
             except Exception:
                 print("DEBUG loop raw (non-serializable):", type(renew_contract), str(renew_contract)[:500])
 
-            # 兼容两种返回结构：{contract: {...}} 或 直接 contract 对象
             renew_c = {}
             if isinstance(renew_contract, dict):
                 renew_c = renew_contract.get('contract') or renew_contract
@@ -217,25 +265,22 @@ def run_task():
             except Exception:
                 print("DEBUG loop contract (non-serializable):", type(renew_c))
 
-            next_dt = None
-            if isinstance(renew_c, dict):
-                next_dt = renew_c.get('renewalInfo', {}).get('nextRenewalDate')
+            next_dt_loop = renew_c.get('renewalInfo', {}).get('nextRenewalDate') if isinstance(renew_c, dict) else None
+            after_h = calculate_hours(next_dt_loop)
 
-            after_h = calculate_hours(next_dt)
-
-            print("DEBUG 循环检查 after_h =", after_h, " nextRenewalDate =", next_dt)
+            print("DEBUG 循环检查 after_h =", after_h, " nextRenewalDate =", next_dt_loop)
             if after_h > before_h:
                 break
 
-
-        # 7. 智能判定判定部分 
+        # 7. 判定与通知
         is_success = after_h > before_h
         print("DEBUG 判定：before_h =", before_h, "after_h =", after_h, "is_success =", is_success)
-        msg_str = str(renew_res.get('message', '')).lower()
-        has_limit_msg = "5 días" in msg_str or "limit" in msg_str
-      
-        has_reached_threshold = (before_h >= 108 and after_h <= before_h)
-        is_maxed = has_limit_msg or (has_reached_threshold and renew_res.get('success'))
+        msg_str = str(renew_res.get('message', '')).lower() if isinstance(renew_res, dict) else ""
+        has_limit_msg = "5 días" in msg_str or "no puedes renovar" in msg_str or "limit" in msg_str
+
+        # 优先用数值判断是否接近上限
+        is_near_max = before_h >= 120 or after_h >= 120 or (before_h >= 108 and after_h <= before_h)
+        is_maxed = is_near_max or (has_limit_msg and renew_res.get('success'))
 
         if is_success:
             fields = [
@@ -271,7 +316,6 @@ def run_task():
     except Exception as e:
         err = str(e).replace('<','[').replace('>',']')
         print("Runtime error:", err)
-        # 使用已初始化的 serverName 以避免二次异常
         send_notice("business_error", [("📛","服务器名称", serverName),("🆔","ID",f"<code>{server_id}</code>"),("❌","详情",f"<code>{err}</code>")])
     finally:
         if driver: driver.quit()
