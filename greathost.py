@@ -167,23 +167,42 @@ def run_task():
         # 5. 执行续期 POST
         print(f"🚀 正在为 {TARGET_NAME_CONFIG} 发送续期请求...")
         renew_res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
+        print("DEBUG renew_res:", json.dumps(renew_res, indent=2, ensure_ascii=False))
 
         # 6. 循环等待后台写入 nextRenewalDate（最多等 15 秒）
         after_h = 0
         for _ in range(5):  # 每次等 3 秒，总共最多 15 秒
-                time.sleep(3)
-                renew_contract = fetch_api(driver, f"/api/servers/{server_id}/contract")
-                # 兼容 fetch_api 返回结构：可能直接是 contract 对象或 {contract: {...}}
-                renew_c = renew_contract.get('contract', {}) if isinstance(renew_contract, dict) else {}
-                # 如果 fetch_api 直接返回 contract dict（不常见），也尝试使用 renew_contract 本身
-                if not renew_c and isinstance(renew_contract, dict) and 'serverId' in renew_contract:
-                        renew_c = renew_contract
+            time.sleep(3)
+            renew_contract = fetch_api(driver, f"/api/servers/{server_id}/contract")
 
-                after_h = calculate_hours(renew_c.get('renewalInfo', {}).get('nextRenewalDate'))
+            # 安全打印原始返回（避免 json.dumps 抛异常）
+            try:
+                print("DEBUG loop raw:", json.dumps(renew_contract, ensure_ascii=False))
+            except Exception:
+                print("DEBUG loop raw (non-serializable):", type(renew_contract), str(renew_contract)[:500])
 
-                print("DEBUG 循环检查 after_h =", after_h, " nextRenewalDate =", renew_c.get('renewalInfo', {}).get('nextRenewalDate'))
-                if after_h > before_h:
-                        break
+            # 兼容两种返回结构：{contract: {...}} 或 直接 contract 对象
+            renew_c = {}
+            if isinstance(renew_contract, dict):
+                renew_c = renew_contract.get('contract') or renew_contract
+                if not isinstance(renew_c, dict):
+                    renew_c = {}
+
+            try:
+                print("DEBUG loop contract:", json.dumps(renew_c, ensure_ascii=False))
+            except Exception:
+                print("DEBUG loop contract (non-serializable):", type(renew_c))
+
+            next_dt = None
+            if isinstance(renew_c, dict):
+                next_dt = renew_c.get('renewalInfo', {}).get('nextRenewalDate')
+
+            after_h = calculate_hours(next_dt)
+
+            print("DEBUG 循环检查 after_h =", after_h, " nextRenewalDate =", next_dt)
+            if after_h > before_h:
+                break
+
 
         # 7. 智能判定判定部分 
         is_success = after_h > before_h
