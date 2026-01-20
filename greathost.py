@@ -164,6 +164,7 @@ def run_task():
                 ("🆔", "ID", f"<code>{server_id}</code>"),
                 ("⏰", "增加时间", f"{before_h} ➔ {after_h}h"),
                 ("🚀", "服务器状态", status_disp),
+                ("💡", "提示", res_message),
                 ("🌐", "登入 IP", f"<code>{login_ip}</code>")
             ])
         elif "5 d" in str(renew_res.get('message', '')) or (before_h > 108):
@@ -179,8 +180,10 @@ def run_task():
             send_notice("renew_failed", [
                 ("📛", "服务器名称", target_name),
                 ("🆔", "ID", f"<code>{server_id}</code>"),
+                ("🚀", "服务器状态", status_disp),
                 ("⏰", "剩余时间", f"{before_h}h"),
                 ("💡", "提示", res_message)
+                ("🌐", "登入 IP", f"<code>{login_ip}</code>")
             ])
 
     except Exception as e:
