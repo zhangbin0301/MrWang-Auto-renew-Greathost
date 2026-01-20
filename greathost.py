@@ -35,7 +35,6 @@ def now_shanghai():
 def calculate_hours(date_str):
     try:
         if not date_str: return 0
-        # 兼容处理带毫秒的格式
         clean_date = re.sub(r'\.\d+Z$', 'Z', date_str)
         expiry = datetime.fromisoformat(clean_date.replace('Z', '+00:00'))
         now = datetime.now(timezone.utc)
@@ -52,7 +51,6 @@ def fetch_api(driver, url, method="GET"):
     return res
 
 def send_notice(kind, fields):
-    """保持您要求的 TG 通知风格"""
     titles = {
         "renew_success": "🎉 <b>GreatHost 续期成功</b>",
         "maxed_out": "🈵 <b>GreatHost 已达上限</b>",
@@ -109,7 +107,7 @@ def run_task():
         server_id = target_server.get('id')
         print(f"✅ 已锁定目标服务器: {target_name} (ID: {server_id})")
         
-        # 3. 获取实时状态
+        # 3. 获取实时服务器状态（Running Stop...）
         info = fetch_api(driver, f"/api/servers/{server_id}/information")
         real_status = info.get('status', 'unknown').lower()
         icon, status_name = STATUS_MAP.get(real_status, ["❓", real_status])
@@ -120,11 +118,10 @@ def run_task():
         driver.get(f"https://greathost.es/contracts/{server_id}")
         time.sleep(2)
         
-        # 【修正点】验证过的 renewal 接口，并增加 .get('contract') 层级
+        # 在Renew前抓取后台API数据
         contract_data = fetch_api(driver, f"/api/renewal/contracts/{server_id}")
-
         print(f"DEBUG: 原始合同数据 -> {str(contract_data)[:100]}...")
-        # 兼容性处理：优先找 contract 里的数据，找不到则看顶层
+        
         renewal_info = contract_data.get('contract', {}).get('renewalInfo') or contract_data.get('renewalInfo', {})
         before_h = calculate_hours(renewal_info.get('nextRenewalDate'))
         
@@ -147,13 +144,12 @@ def run_task():
         # 5. 执行续期
         print(f"🚀 正在执行续期 POST...")
         renew_res = fetch_api(driver, f"/api/renewal/contracts/{server_id}/renew-free", method="POST")
-        
-        is_success = renew_res.get('success', False)
-        # 续期成功后，新日期确实是在 details 字段下
-        after_date = renew_res.get('details', {}).get('nextRenewalDate')
+
+        # 续期成功后，抓新日期等信息( details 字段下)
+        is_success = renew_res.get('success', False)      
         res_message = renew_res.get('message', '无返回消息')
-         # 后台打印完整的响应信息，方便调试
-        print(f"📡 续期响应结果: Success={is_success} | Message='{res_message}'")
+        after_date = renew_res.get('details', {}).get('nextRenewalDate')
+        print(f"📡 续期响应结果: {is_success} | Date='{after_date}' | Message='{res_message}'")
         
         # 确保 after_h 在失败时不会变成 0
         if is_success and after_date:
