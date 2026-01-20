@@ -2,7 +2,7 @@ name: Greathost-AutoRenew-PY
 
 on:
   schedule:
-    - cron: '0 */11 * * *'  # 每11小时运行一次
+    - cron: '0 */12 * * *'  # 每12小时运行一次
   workflow_dispatch:        # 允许手动运行
 
 jobs:
