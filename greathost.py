@@ -45,13 +45,15 @@ def send_notice(kind, fields):
         "error": "🚨 <b>GreatHost 脚本报错</b>"
     }
     body = "\n".join([f"{e} {k}: {v}" for e, k, v in fields])
-    msg = f"{titles.get(kind)}\n\n{body}\n📅 时间: {now_shanghai()}"
+    msg = f"{titles.get(kind, '📢 通知')}\n\n{body}\n📅 时间: {now_shanghai()}"
+    
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         try:
             requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                 data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
-                timeout=5
+                proxies={"http": None, "https": None}, # <-- 只需要加这一行，强制直连
+                timeout=10 # 稍微增加超时防止网络卡顿
             )
         except: pass
 
@@ -182,31 +184,20 @@ def run():
                 ("💡","提示",msg),
                 ("🌐","登入 IP",f"<code>{ip}</code>")
             ])
-    except Exception as e:
+except Exception as e:
         print(f"🚨 运行异常: {e}")
-        
-        # --- 增强报错通知可靠性：临时屏蔽环境变量中的代理 ---
-        # 记录当前的代理设置
-        old_http = os.environ.get('HTTP_PROXY')
-        old_https = os.environ.get('HTTPS_PROXY')
-        
-        # 强制清空当前进程的代理环境变量，让 requests 直连 Telegram
-        os.environ['HTTP_PROXY'] = ''
-        os.environ['HTTPS_PROXY'] = ''
-        
-        try:
-            send_notice("error", [
-                ("📛", "服务器名称", TARGET_NAME),
-                ("❌", "故障", f"<code>{str(e)[:100]}</code>"),
-                ("🌐", "代理状态", "已尝试直连发送") # 标记当前是在尝试直连
-            ])
-        finally:
-            # 恢复原始代理设置，避免影响后续其他可能的逻辑
-            if old_http is not None: os.environ['HTTP_PROXY'] = old_http
-            if old_https is not None: os.environ['HTTPS_PROXY'] = old_https
+        # 因为 send_notice 内部已经强制直连，所以这里直接调就行，代码清爽多了
+        send_notice("error", [
+            ("📛", "服务器名称", TARGET_NAME),
+            ("❌", "故障", f"<code>{str(e)[:100]}</code>"),
+            ("🌐", "代理状态", "已尝试直连") 
+        ])
 
     finally:
-        gh.close() # 确保浏览器关闭
+        # 增加一个判断，防止 gh 没初始化成功导致报错
+        if 'gh' in locals():
+            try: gh.close()
+            except: pass
 
 if __name__ == "__main__":
     run()
