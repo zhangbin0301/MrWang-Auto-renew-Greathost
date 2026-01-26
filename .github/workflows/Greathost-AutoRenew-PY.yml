@@ -49,3 +49,11 @@ jobs:
           name: error-screenshot
           path: error_page.html
           retention-days: 3 # 保存3天
+
+      - name: 🧹 清理旧的工作流运行记录
+        uses: MajorScruffy/delete-old-workflow-runs@v0.3.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          repository: ${{ github.repository }}
+          older-than-seconds: 3600  # 删除1小时前的记录   
