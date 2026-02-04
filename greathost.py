@@ -75,10 +75,10 @@ class GH:
         try:
             self.d.get("https://api.ipify.org?format=json")
             ip = json.loads(self.d.find_element(By.TAG_NAME, "body").text).get("ip", "Unknown")
-            print(f"🌐 登入 IP: {ip}")
+            print(f"🌐 落地 IP: {ip}")
             return ip
         except:
-            print("🌐 登入 IP: 无法获取")
+            print("🌐 落地 IP: 无法获取")
             return "Unknown"
 
     def login(self):
@@ -164,7 +164,7 @@ def run():
                 ("⏰","增加时间",f"{before} ➔ {after}h"),
                 ("🚀","服务器状态",status_disp),
                 ("💡","提示",msg),
-                ("🌐","登入 IP",f"<code>{ip}</code>")
+                ("🌐","落地 IP",f"<code>{ip}</code>")
             ])
         elif "5 d" in msg or before > 108:
             send_notice("maxed_out", [
@@ -173,7 +173,7 @@ def run():
                 ("⏰","剩余时间",f"{after}h"),
                 ("🚀","服务器状态",status_disp),
                 ("💡","提示",msg),
-                ("🌐","登入 IP",f"<code>{ip}</code>")
+                ("🌐","落地 IP",f"<code>{ip}</code>")
             ])
         else:
             send_notice("renew_failed", [
@@ -182,7 +182,7 @@ def run():
                 ("🚀","服务器状态",status_disp),
                 ("⏰","剩余时间",f"{before}h"),
                 ("💡","提示",msg),
-                ("🌐","登入 IP",f"<code>{ip}</code>")
+                ("🌐","落地 IP",f"<code>{ip}</code>")
             ])
     except Exception as e:
         print(f"🚨 运行异常: {e}")
