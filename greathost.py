@@ -1,3 +1,5 @@
+##### greathost.py api后台协议抓取，指定名续期 ######
+
 import os, re, time, json, requests
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
